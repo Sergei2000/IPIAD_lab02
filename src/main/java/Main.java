@@ -1,3 +1,7 @@
+import com.google.common.hash.Hashing;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
@@ -12,7 +16,10 @@ import org.elasticsearch.cluster.metadata.MetadataIndexTemplateService;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.TransportAddress;
 import org.elasticsearch.common.xcontent.XContentType;
-
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.aggregations.Aggregation;
@@ -48,10 +55,34 @@ class ElasticConnector {
     {
         client.close();
     }
+
+    public String getSHA(String input) throws NoSuchAlgorithmException
+    {
+        return Hashing.sha256()
+                .hashString(input, StandardCharsets.UTF_8)
+                .toString();
+    }
+
+    String CalcContentHash(String Jsonka) throws NoSuchAlgorithmException {
+        JsonElement jelement = new JsonParser().parse(Jsonka);
+        JsonObject jobject = jelement.getAsJsonObject();
+        System.out.println(jobject.get("Content").toString());
+        System.out.println(getSHA(jobject.get("Content").toString()));
+        return getSHA(jobject.get("Content").toString());
+    }
+
     void PutDocument(String Jsonka)
     {
         IndexRequest request = new IndexRequest("posts");
-        //request.id("1");
+
+        try {
+            request.id(CalcContentHash(Jsonka));
+
+        }
+        catch (Exception e )
+        {
+            System.out.println("error getting hash");
+        }
         String jsonString = Jsonka;
         request.source(jsonString, XContentType.JSON);
         client.index(request);
@@ -116,6 +147,7 @@ class ContentPrinter extends Thread
                 String content = new String(delivery.getBody(), "UTF-8");
                 try {
                     conector.PutDocument(content);
+                    System.out.println("Appended");
                 } finally {
                     channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
                 }
@@ -157,8 +189,9 @@ public class Main {
 
 
         ContentPrinter t1 = new ContentPrinter();
+        ContentPrinter t2 = new ContentPrinter();
         t1.run();
-
+        t2.run();
         while (true)
         {
             Scanner sc= new Scanner(System.in);
@@ -172,7 +205,6 @@ public class Main {
                     try
                     {
                         stat.ShowAuthorAgregation();
-
                     }
                     catch (Exception e)
                     {
@@ -184,6 +216,7 @@ public class Main {
                     break;
                 case "Stop":
                     t1.stop();
+                    t2.stop();
                     return;
 
             }
