@@ -6,16 +6,24 @@ import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
+import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
+import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsRequest;
 import org.elasticsearch.action.admin.indices.mapping.put.PutMappingRequest;
 import org.elasticsearch.action.admin.indices.mapping.put.PutMappingRequestBuilder;
 import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
+import org.elasticsearch.client.RequestOptions;
+import org.elasticsearch.client.Requests;
 import org.elasticsearch.cluster.metadata.MetadataIndexTemplateService;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.TransportAddress;
+import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentType;
+
+import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,14 +34,18 @@ import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.transport.client.PreBuiltTransportClient;
 
 
 import java.net.InetAddress;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Scanner;
 
-//TO DO Set mapping and better think on logic
+import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
+
+
 class ElasticConnector {
     PreBuiltTransportClient client = null;
     void Connect() {
@@ -104,6 +116,67 @@ class ElasticConnector {
 
     }
 
+    public boolean IndexExists(String index) {
+        return client.admin().indices().exists(new IndicesExistsRequest(index)).actionGet().isExists();
+
+    }
+
+    void SetMapping(String index, String jsonka) {
+                ///TODo make function for mapping from json or other way
+    }
+
+    SearchResponse GetNeededNews(String index,String field,String phrase)
+    {
+        SearchRequest searchRequest = new SearchRequest(index);
+        SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+        sourceBuilder.query(QueryBuilders.matchQuery(field,phrase));
+        searchRequest.source(sourceBuilder);
+        SearchResponse resp = client.search(searchRequest).actionGet();
+        return resp;
+    }
+    void CreateIndex(String index)
+    {
+        try
+        {
+            if(IndexExists(index))
+            {
+                return;
+            }
+            else {
+                client.admin().indices().create(new CreateIndexRequest(index)).actionGet();
+            }
+        }
+        catch (Exception e )
+        {
+            System.out.println("Error creating index - "+e.toString());
+        }
+    }
+
+    void SetMapping(String index)  {
+
+        try
+        {
+            XContentBuilder mapping = jsonBuilder()
+                    .startObject()
+                    .startObject("properties")
+                    .startObject("Source")
+                    .field("type", "keyword")
+                    .endObject()
+                    .endObject()
+                    .endObject();
+            AcknowledgedResponse resp = client.admin().indices()
+                    .preparePutMapping(index)
+                    .setSource(mapping)
+                    .setType("_doc")
+                    .execute().actionGet();
+        }
+        catch (Exception e )
+        {
+            System.out.println("Mapping error - "+e.toString());
+        }
+
+    }
+
     void GetAllData()
     {
         QueryBuilder query = QueryBuilders.matchAllQuery();
@@ -127,6 +200,8 @@ class ContentPrinter extends Thread
     {
         ElasticConnector conector = new ElasticConnector();
         conector.Connect();
+        conector.CreateIndex("posts");
+        conector.SetMapping("posts");
         if (conector.client == null)
         {
             System.out.println("error with connection");
@@ -186,6 +261,10 @@ class Statistics
 
 public class Main {
     public static void main(String args []) throws InterruptedException {
+
+        ElasticConnector connector =new ElasticConnector();
+        connector.Connect();
+
 
 
         ContentPrinter t1 = new ContentPrinter();
